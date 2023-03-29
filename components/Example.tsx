@@ -3,7 +3,7 @@ import { Combobox, Dialog, Transition } from '@headlessui/react'
 import { RepositoryOption, type Repository } from './RepositoryOption'
 import { FaceSmileIcon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
-type APIResponse = { items: Repository[] }
+type APIResponse = { items?: Repository[] }
 
 export default function Example() {
   const [open, setOpen] = React.useState(true)
@@ -33,7 +33,7 @@ export default function Example() {
     })}`, { signal: controller.signal }).then(async res => {
       if (res.ok) {
         const { items } = await res.json() as APIResponse
-        setRepositories(items.slice(0, 5))
+        items && setRepositories(items.slice(0, 5))
       }
     })
     .finally(() => {
