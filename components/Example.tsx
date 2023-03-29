@@ -1,22 +1,7 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Combobox, Dialog, Transition } from '@headlessui/react'
-import { RepositoryOption } from './RepositoryOption'
+import { RepositoryOption, type Repository } from './RepositoryOption'
 import { FaceSmileIcon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
-
-type Repository = {
-  id: string
-  name: string
-  full_name: string
-  open_issues_count: number
-  stargazers_count: number
-  forks_count: number
-  url: string
-  language: string
-  owner: {
-    login: string
-    avatar_url: string
-  }
-}
 
 type APIResponse = { items: Repository[] }
 
@@ -33,6 +18,32 @@ export default function Example() {
 
   const [rawQuery, setRawQuery] = React.useState('')
   const query = rawQuery.toLowerCase().replace(/^[#>]/, '')
+  const [repositories, setRepositories] = React.useState<Repository[]>([])
+  const [loading, setLoading] = React.useState(false)
+
+  useEffect(() => {
+    if (query.length <= 2) {
+      return
+    }
+
+    const controller = new AbortController()
+    setLoading(true)
+    fetch(`/api/search?${new URLSearchParams({
+      q: query,
+    })}`, { signal: controller.signal }).then(async res => {
+      if (res.ok) {
+        const { items } = await res.json() as APIResponse
+        setRepositories(items.slice(0, 5))
+      }
+    })
+    .finally(() => {
+      setLoading(false)
+    })
+
+    return () => {
+      controller.abort()
+    }
+  }, [query])
 
   return (
     <Transition.Root
@@ -92,9 +103,7 @@ export default function Example() {
                       Repositories
                     </h2>
                     <ul className="-mx-4 mt-2 text-sm text-gray-700 space-y-0.5">
-                      <RepositoryOption />
-                      <RepositoryOption />
-                      <RepositoryOption />
+                      {repositories.map(repo => (<RepositoryOption key={repo.id} repo={repo} />))}
                     </ul>
                   </li>
                 </Combobox.Options>
