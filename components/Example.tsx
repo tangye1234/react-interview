@@ -1,52 +1,68 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useDeferredValue, useEffect, useRef } from 'react'
 import { Combobox, Dialog, Transition } from '@headlessui/react'
 import { RepositoryOption, type Repository } from './RepositoryOption'
 import { FaceSmileIcon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
+import { StateTransition } from './StateTransition'
+import { usePrevious } from '../hooks/use-previous'
+import { useLocalStorage } from '../hooks/use-local-storage'
+import { queryRepository } from '../services/repository'
+import { HistoryOption } from './HistoryOption'
 
-type APIResponse = { items?: Repository[] }
+const durations = ['duration-150', 'duration-200', 'duration-[250ms]', 'duration-300', 'duration-[350ms]', 'duration-[400ms]', 'duration-[450ms]', 'duration-500', 'duration-[550ms]', 'duration-[600ms]', 'duration-[650ms]', 'duration-700', 'duration-[750ms]', 'duration-[800ms]']
 
 export default function Example() {
-  const [open, setOpen] = React.useState(true)
+  const [open, setOpen] = React.useState(false)
 
-  React.useEffect(() => {
-    if (!open) {
-      setTimeout(() => {
+  // shotcut for meta + k
+  useEffect(() => {
+    if (open) {
+      return
+    }
+
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && event.metaKey) {
         setOpen(true)
-      }, 500)
+      }
+    }
+    document.addEventListener('keydown', onKeydown)
+    return () => {
+      document.removeEventListener('keydown', onKeydown)
     }
   }, [open])
 
   const [rawQuery, setRawQuery] = React.useState('')
-  const query = rawQuery.toLowerCase().replace(/^[#>]/, '')
+  const q = rawQuery.toLowerCase().replace(/^[#>]/, '')
   const [repositories, setRepositories] = React.useState<Repository[]>([])
   const [loading, setLoading] = React.useState(false)
+  const query = useDeferredValue(q)
 
   useEffect(() => {
-    if (query.length <= 2) {
-      return
-    }
-
+    setLoading(true)
     const controller = new AbortController()
-    const handler = setTimeout((q: string) => {
-      setLoading(true)
-      fetch(`/api/search?${new URLSearchParams({
-        q,
-      })}`, { signal: controller.signal }).then(async res => {
-        if (res.ok) {
-          const { items } = await res.json() as APIResponse
-          items && setRepositories(items.slice(0, 5))
+    const signal = controller.signal
+    queryRepository(query, signal)
+      .then(setRepositories)
+      .catch(_ => {})
+      .finally(() => {
+        if (!signal.aborted) {
+          setLoading(false)
         }
       })
-      .finally(() => {
-        setLoading(false)
-      })
-    }, 500, query)
 
     return () => {
       controller.abort()
-      clearTimeout(handler)
     }
   }, [query])
+
+  const [history, setHistory] = useLocalStorage<string[]>('history', [])
+  const repoLength = Math.min(repositories.length, 5)
+  const historyLenegth = Math.min(history.length, 8)
+  const previousRepoLength = usePrevious(repoLength) || 0
+  const previousHistoryLength = usePrevious(historyLenegth) || 0
+  const showHistory = repoLength === 0 && !loading && !rawQuery && history.length
+  const repoDiff = Math.abs(repoLength - previousRepoLength) / 5
+  const historyDiff = Math.abs(historyLenegth - previousHistoryLength) / 8
+  const transitionDuration = showHistory ? durations[Math.round(historyDiff * durations.length)] : durations[Math.round(repoDiff * durations.length)]
 
   return (
     <Transition.Root
@@ -81,9 +97,11 @@ export default function Example() {
             <Dialog.Panel className="mx-auto max-w-xl transform divide-y divide-gray-500 divide-opacity-20 overflow-hidden rounded-2xl shadow-slate-300/10 bg-slate-900/70 shadow-2xl ring-1 ring-sky-500 ring-opacity-5 backdrop-blur-xl backdrop-filter transition-all">
               <Combobox
                 value=""
-                onChange={(item) => {
+                onChange={(item: string) => {
                   if (item) {
                     window.open(item, '_blank')
+                    setHistory(history => Array.from(new Set([item].concat(history))).slice(0, 10))
+                    setRawQuery('')
                   }
                 }}
               >
@@ -95,6 +113,7 @@ export default function Example() {
                   <Combobox.Input
                     className="h-12 w-full border-0 bg-transparent pl-11 pr-4 text-gray-100 placeholder-gray-500 focus:ring-0 sm:text-sm focus:outline-0"
                     placeholder="Search GitHub repos..."
+                    displayValue={() => rawQuery}
                     onChange={(event) => setRawQuery(event.target.value)}
                   />
                   {loading && (
@@ -106,7 +125,6 @@ export default function Example() {
                         viewBox="0 0 24 24"
                       >
                         <circle
-
                           className="opacity-25"
                           cx="12"
                           cy="12"
@@ -130,11 +148,48 @@ export default function Example() {
                 >
                   <li>
                     <h2 className="text-xs font-semibold text-gray-200">
-                      Repositories
+                      {rawQuery.length || loading || repositories.length ? 'Repositories' : 'Recent searches'}
                     </h2>
-                    <ul className="-mx-4 mt-2 text-sm text-gray-700 space-y-0.5">
-                      {repositories.map(repo => (<RepositoryOption key={repo.id} repo={repo} />))}
-                    </ul>
+                    <StateTransition state={[repoLength, loading, !rawQuery, history.length]}>
+                      <ul
+                        className={`-mx-4 mt-2 text-sm text-gray-700 space-y-0.5 transition-[height] ease-in-out ${transitionDuration}`}
+                      >
+                        {repositories.length ? repositories.map(repo => (
+                          <Transition key={repo.id}
+                            appear
+                            show
+                            enter="transition duration-500"
+                            enterFrom="opacity-0"
+                            enterTo="opacity-100"
+                            leave="duration-150"
+                            leaveFrom="opacity-100"
+                            leaveTo="opacity-0"
+                          >
+                            <RepositoryOption repo={repo} keyword={query} />
+                          </Transition>
+                        )) : loading ? (
+                          <li className="px-4 py-2 bg-slate-900/20 rounded-lg text-center" key="loading">
+                            <span className="text-gray-400">Searching for {rawQuery}...</span>
+                          </li>
+                        ) : rawQuery.length > 0 ? (
+                          <li className="px-4 py-2 bg-slate-900/20 rounded-lg text-center" key="no-results">
+                            <span className="text-gray-400">No results found</span>
+                          </li>
+                        ) : history.map(item => (
+                          <Transition key={item}
+                            show
+                            enter="transition duration-500"
+                            enterFrom="opacity-0"
+                            enterTo="opacity-100"
+                            leave="duration-150"
+                            leaveFrom="opacity-100"
+                            leaveTo="opacity-0"
+                          >
+                            <HistoryOption link={item} onDelete={() => setHistory(history => history.filter(h => h !== item))} />
+                          </Transition>
+                        ))}
+                      </ul>
+                    </StateTransition>
                   </li>
                 </Combobox.Options>
                 <span className="flex flex-wrap items-center bg-slate-900/20 py-2.5 px-4 text-xs text-gray-400">
