@@ -30,7 +30,7 @@ export type RepositoryOptionProps = {
 export function RepositoryOption({ repo }: RepositoryOptionProps) {
   return (
     <Combobox.Option
-      value={repo}
+      value={`https://github.com/${repo.full_name}`}
       className={({ active }) =>
         classNames(
           'flex flex-col cursor-default select-none justify-center px-4 py-2 space-y-1.5',
